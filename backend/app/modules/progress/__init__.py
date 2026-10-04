@@ -9,6 +9,8 @@ CLAIMED_STATES = ("claimed", "fulfilled")
 
 def effective_target(status: str, target_amount, claimed_target_amount):
     """已认领/已核销走快照，未认领走当前 target。"""
+    if status in CLAIMED_STATES and claimed_target_amount is not None:
+        return claimed_target_amount
     return target_amount
 
 

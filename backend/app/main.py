@@ -52,7 +52,7 @@ def list_wishes():
     for r in c.execute("SELECT * FROM wishes ORDER BY id DESC"):
         w = dict(r)
         contributed = totals.get(w["id"], 0) if w["status"] != "fulfilled" else (w["contributed_snapshot"] or 0)
-        decorate(w, contributed if w["status"] != "claimed" else 0)
+        decorate(w, contributed)
         rows.append(w)
     c.close(); return rows
 
@@ -140,25 +140,26 @@ class ChipInIn(BaseModel):
 
 @app.post("/api/wishes/{wid}/chip-in")
 def chip_in(wid: int, body: ChipInIn):
-    """preview（confirm=false）只返回累计与缺口，不写库；confirm 后记账累加。"""
+    """preview（confirm=false）只返回累计与缺口，绝不写库；confirm 才记账且只记一次。"""
     sponsor = chipin.normalize_sponsor(body.sponsor)
     if not sponsor:
         raise HTTPException(422, "sponsor_required")
     chk = chipin.validate_amount(body.amount)
     if not chk["ok"]:
         raise HTTPException(422, chk["reason"])
+    amount = round(float(body.amount), 2)
+    if amount <= 0:
+        # 原始值 >0 但四舍五入到分后为 0（如 0.001），同样拒写。
+        raise HTTPException(422, "amount_not_positive")
     c = connect(); sweep(c); c.commit()
     r = c.execute("SELECT * FROM wishes WHERE id=?", (wid,)).fetchone()
     if not r: c.close(); raise HTTPException(404, "not found")
     if r["status"] == "fulfilled":
         c.close(); raise HTTPException(409, "already_fulfilled")
-    amount = round(float(body.amount), 2)
     target = effective_target(r["status"], r["target_amount"], r["claimed_target_amount"])
     contributed = chipin.total(c, wid)
-    pv = preview(contributed, target, amount)
-    chipin.add(c, wid, sponsor, amount, now().isoformat())
-    c.commit()
     if not body.confirm:
+        pv = preview(contributed, target, amount)
         c.close()
         return {"ok": True, "confirmed": False, "sponsor": sponsor, **pv}
     chipin.add(c, wid, sponsor, amount, now().isoformat())
@@ -170,16 +171,15 @@ def chip_in(wid: int, body: ChipInIn):
 
 @app.post("/api/wishes/{wid}/fulfill")
 def fulfill(wid: int):
-    c = connect()
+    c = connect(); sweep(c); c.commit()
     r = c.execute("SELECT * FROM wishes WHERE id=?", (wid,)).fetchone()
     if not r: c.close(); raise HTTPException(404, "not found")
     contributed = chipin.total(c, wid)
     target = effective_target(r["status"], r["target_amount"], r["claimed_target_amount"])
     gate = can_fulfill(r["status"], target, contributed)
     if not gate["ok"]:
-        c.execute("INSERT INTO wishes(title,note,status,data_quality) VALUES (?,?,?,?)",
-                  (r["title"], r["note"], "fulfilled", r["data_quality"]))
-        c.commit(); c.close(); raise HTTPException(400, gate["reason"])
+        # 门禁不过：只 4xx，行保持 claimed，不落任何库、不进已完成。
+        c.close(); raise HTTPException(400, gate["reason"])
     c.execute(
         "UPDATE wishes SET status='fulfilled', contributed_snapshot=? WHERE id=?",
         (contributed, wid))
@@ -200,9 +200,10 @@ def mine(claimer: str):
 
 @app.get("/api/done")
 def done():
+    """已完成只认 fulfilled；claimed 行即使有赞助记录也不进此列表。"""
     c = connect()
-    rows = [serialize(c, r) for r in c.execute("SELECT * FROM wishes WHERE status='fulfilled' OR id IN (SELECT wish_id FROM chip_ins)")]
-    rows = [x for x in rows if x.get("status") in ("fulfilled", "claimed")]
+    rows = [serialize(c, r) for r in c.execute(
+        "SELECT * FROM wishes WHERE status='fulfilled' ORDER BY id DESC")]
     c.close(); return rows
 
 @app.get("/api/settings")
