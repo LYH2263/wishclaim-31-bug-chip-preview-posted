@@ -52,7 +52,7 @@ def list_wishes():
     for r in c.execute("SELECT * FROM wishes ORDER BY id DESC"):
         w = dict(r)
         contributed = totals.get(w["id"], 0) if w["status"] != "fulfilled" else (w["contributed_snapshot"] or 0)
-        decorate(w, contributed if w["status"] != "claimed" else 0)
+        decorate(w, contributed)
         rows.append(w)
     c.close(); return rows
 
@@ -137,31 +137,40 @@ class ChipInIn(BaseModel):
     sponsor: str
     amount: float
     confirm: bool = False
+    token: str | None = None
 
 @app.post("/api/wishes/{wid}/chip-in")
 def chip_in(wid: int, body: ChipInIn):
-    """preview（confirm=false）只返回累计与缺口，不写库；confirm 后记账累加。"""
+    """preview（confirm=false）只返回累计与缺口并签发一次性凭证，不写库；
+    confirm 必须出示未消费且金额一致的凭证，消费与记账同事务，只记一笔。"""
     sponsor = chipin.normalize_sponsor(body.sponsor)
     if not sponsor:
         raise HTTPException(422, "sponsor_required")
     chk = chipin.validate_amount(body.amount)
     if not chk["ok"]:
         raise HTTPException(422, chk["reason"])
+    amount = round(float(body.amount), 2)
     c = connect(); sweep(c); c.commit()
     r = c.execute("SELECT * FROM wishes WHERE id=?", (wid,)).fetchone()
     if not r: c.close(); raise HTTPException(404, "not found")
     if r["status"] == "fulfilled":
         c.close(); raise HTTPException(409, "already_fulfilled")
-    amount = round(float(body.amount), 2)
     target = effective_target(r["status"], r["target_amount"], r["claimed_target_amount"])
-    contributed = chipin.total(c, wid)
-    pv = preview(contributed, target, amount)
-    chipin.add(c, wid, sponsor, amount, now().isoformat())
-    c.commit()
+    ts = now()
     if not body.confirm:
-        c.close()
-        return {"ok": True, "confirmed": False, "sponsor": sponsor, **pv}
-    chipin.add(c, wid, sponsor, amount, now().isoformat())
+        # 试算：纯投影 + 签发凭证，绝不插账本
+        contributed = chipin.total(c, wid)
+        pv = preview(contributed, target, amount)
+        nonce = chipin.issue_token(c, wid, sponsor, amount, ts)
+        c.commit(); c.close()
+        return {"ok": True, "confirmed": False, "sponsor": sponsor,
+                "preview_token": nonce, **pv}
+    # 确认：先拿写锁，原子消费一次性凭证，再只记一笔
+    c.execute("BEGIN IMMEDIATE")
+    gate = chipin.consume_token(c, body.token, wid, sponsor, amount, ts)
+    if not gate["ok"]:
+        c.commit(); c.close(); raise HTTPException(409, gate["reason"])
+    chipin.add(c, wid, sponsor, amount, ts.isoformat())
     c.commit()
     new_total = chipin.total(c, wid)
     c.close()
@@ -177,9 +186,8 @@ def fulfill(wid: int):
     target = effective_target(r["status"], r["target_amount"], r["claimed_target_amount"])
     gate = can_fulfill(r["status"], target, contributed)
     if not gate["ok"]:
-        c.execute("INSERT INTO wishes(title,note,status,data_quality) VALUES (?,?,?,?)",
-                  (r["title"], r["note"], "fulfilled", r["data_quality"]))
-        c.commit(); c.close(); raise HTTPException(400, gate["reason"])
+        # 门禁不过：不写任何行，状态保持 claimed，墙/我的认领/已完成三处一致
+        c.close(); raise HTTPException(400, gate["reason"])
     c.execute(
         "UPDATE wishes SET status='fulfilled', contributed_snapshot=? WHERE id=?",
         (contributed, wid))
@@ -190,19 +198,14 @@ def fulfill(wid: int):
 @app.get("/api/mine")
 def mine(claimer: str):
     c = connect(); sweep(c); c.commit()
-    totals = chipin.totals_map(c)
-    rows = []
-    for r in c.execute("SELECT * FROM wishes WHERE claimer=?", (claimer,)):
-        w = dict(r)
-        decorate(w, totals.get(w["id"], 0))
-        rows.append(w)
+    rows = [serialize(c, r) for r in c.execute("SELECT * FROM wishes WHERE claimer=?", (claimer,))]
     c.close(); return rows
 
 @app.get("/api/done")
 def done():
+    # 已完成页只认真 fulfilled；fulfill 失败的 claimed 行不得出现在这里
     c = connect()
-    rows = [serialize(c, r) for r in c.execute("SELECT * FROM wishes WHERE status='fulfilled' OR id IN (SELECT wish_id FROM chip_ins)")]
-    rows = [x for x in rows if x.get("status") in ("fulfilled", "claimed")]
+    rows = [serialize(c, r) for r in c.execute("SELECT * FROM wishes WHERE status='fulfilled'")]
     c.close(); return rows
 
 @app.get("/api/settings")

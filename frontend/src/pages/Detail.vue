@@ -33,7 +33,8 @@
         <button class="ghost" @click="confirmChip">确认赞助</button>
       </div>
       <p v-if="pv && !pv.confirmed" class="tag">
-        预览：累计 ¥{{ money(pv.contributed) }} → ¥{{ money(pv.projected_total) }}，
+        预览（未记账，墙角标/进度/我的认领仍为旧累计）：
+        累计 ¥{{ money(pv.contributed) }} → ¥{{ money(pv.projected_total) }}，
         缺口 ¥{{ money(pv.gap) }} → ¥{{ money(pv.projected_gap) }}
         <template v-if="pv.target_amount == null">（无目标）</template>
         <template v-else-if="pv.would_reach">· 这笔将凑满目标 ✅</template>
@@ -87,13 +88,33 @@ async function fulfill() {
 }
 async function callChip(confirm) {
   err.value = ''
+  // 确认必须凭一笔未消费的试算：赞助人/金额与试算一致，令牌只能用一次
+  if (confirm && (!pv.value || pv.value.confirmed || pv.value.preview_token == null
+      || pv.value.sponsor !== sponsor.value.trim()
+      || Number(pv.value.amount) !== Number(amount.value))) {
+    err.value = '请先按当前赞助人和金额点「预览」，再点「确认赞助」'
+    return
+  }
   try {
     const r = await api('/wishes/' + props.id + '/chip-in', {
       method: 'POST',
-      body: JSON.stringify({ sponsor: sponsor.value, amount: Number(amount.value), confirm }),
+      body: JSON.stringify({
+        sponsor: sponsor.value,
+        amount: Number(amount.value),
+        confirm,
+        token: confirm ? pv.value.preview_token : null,
+      }),
     })
-    pv.value = r
-    if (confirm) { amount.value = ''; await load(); pv.value = r }
+    if (confirm) {
+      // 令牌已消费：清掉输入与试算态，刷新后墙角标/进度/我的认领一起加这笔
+      amount.value = ''
+      pv.value = null
+      await load()
+      pv.value = r
+    } else {
+      // 试算不落库：只显示投影，不刷新页面三处旧累计
+      pv.value = r
+    }
   } catch (e) { err.value = e.message }
 }
 const previewChip = () => callChip(false)

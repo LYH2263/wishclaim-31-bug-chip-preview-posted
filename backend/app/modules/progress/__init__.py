@@ -8,7 +8,12 @@ CLAIMED_STATES = ("claimed", "fulfilled")
 
 
 def effective_target(status: str, target_amount, claimed_target_amount):
-    """已认领/已核销走快照，未认领走当前 target。"""
+    """已认领/已核销走钉住快照，未认领走当前 target。
+
+    墙角标、详情进度、fulfill 门禁三处共用本函数，禁止接口与墙上目标不一致。
+    """
+    if status in CLAIMED_STATES:
+        return claimed_target_amount
     return target_amount
 
 
