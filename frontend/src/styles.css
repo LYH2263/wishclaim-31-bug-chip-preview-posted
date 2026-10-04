@@ -1,0 +1,56 @@
+:root {
+  --bg: #f6ebe3; --rose: #e8a0a0; --ink: #3a2a28; --card: #fff8f3;
+  --muted: #8a6f68; --line: #e4d0c6;
+  font-family: "Source Sans 3", Georgia, sans-serif; color: var(--ink);
+  background: var(--bg);
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background:
+  radial-gradient(ellipse at top, #fde8e0, transparent 55%), var(--bg); }
+h1, .serif { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; letter-spacing: .02em; }
+.wall { max-width: 1100px; margin: 0 auto; padding: 24px 16px 100px; }
+.masonry { column-count: 3; column-gap: 14px; }
+@media (max-width: 800px) { .masonry { column-count: 2; } }
+@media (max-width: 520px) { .masonry { column-count: 1; } }
+.card {
+  break-inside: avoid; background: var(--card); border: 1px solid var(--line);
+  border-radius: 18px; padding: 16px; margin: 0 0 14px; cursor: pointer;
+}
+.card h3 { margin: 0 0 6px; font-family: "Instrument Serif", serif; font-size: 1.4rem; }
+.tag { font-size: 12px; color: var(--muted); }
+.fab {
+  position: fixed; right: 20px; bottom: 24px; width: 58px; height: 58px; border-radius: 50%;
+  border: 0; background: var(--rose); color: #fff; font-size: 28px; cursor: pointer;
+  box-shadow: 0 8px 20px rgba(180,80,80,.25);
+}
+.drawer-backdrop { position: fixed; inset: 0; background: rgba(40,20,20,.35); z-index: 20; }
+.drawer {
+  position: fixed; top: 0; right: 0; width: min(360px, 92vw); height: 100%;
+  background: var(--card); z-index: 21; padding: 20px; overflow: auto;
+  border-left: 1px solid var(--line);
+}
+.drawer a { display: block; padding: 10px 0; border-bottom: 1px dashed var(--line); color: inherit; text-decoration: none; }
+button { background: var(--rose); color: #fff; border: 0; border-radius: 12px; padding: 8px 14px; font: inherit; cursor: pointer; }
+button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+input, textarea { width: 100%; padding: 10px; border-radius: 12px; border: 1px solid var(--line); font: inherit; margin: 6px 0 12px; background: #fff; }
+.menu-btn { position: fixed; left: 16px; top: 16px; z-index: 10; }
+.err { color: #a33; }
+
+/* 凑份子进度 —— 四路共用 */
+.pro { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.pro-none { opacity: .75; }
+.pro .bar { flex: 0 0 120px; height: 8px; border-radius: 999px; background: #f0ddd3; overflow: hidden; }
+.pro .bar i { display: block; height: 100%; background: var(--rose); border-radius: 999px; transition: width .3s; }
+.pro .bar i.done { background: #7fae8c; }
+.pro .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rose); box-shadow: 0 0 0 3px rgba(232,160,160,.25); }
+.pro .dot.done { background: #7fae8c; box-shadow: 0 0 0 3px rgba(127,174,140,.25); }
+.pro-bar { width: 100%; margin: 10px 0; }
+.pro-badge { background: #fff3ec; border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px 3px 7px; }
+.corner { position: absolute; top: 12px; right: 14px; }
+.card { position: relative; }
+.aside { margin: 6px 0 0; }
+.detail .row { display: flex; gap: 8px; align-items: center; }
+.detail .row input { margin: 6px 0; }
+.chipin { margin-top: 24px; border-top: 1px dashed var(--line); padding-top: 12px; }
+.chipin h2 { font-size: 1.2rem; margin: 4px 0 8px; }
+.ledger { font-size: 13px; color: var(--muted); padding-left: 18px; margin: 8px 0 0; }
